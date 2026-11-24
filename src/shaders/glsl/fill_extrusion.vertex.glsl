@@ -15,6 +15,11 @@ layout(location = 1) in ivec4 a_normal_ed;
 
 out vec4 v_color;
 
+#ifdef ELEVATION_COLOR
+    out float v_elevation_t;
+    out float v_directional;
+#endif
+
 #pragma maplibre: define highp float base
 #pragma maplibre: define highp float height
 
@@ -67,14 +72,21 @@ void main() {
         gl_Position = u_projection_matrix * vec4(posInTile, elevation, 1.0);
     #endif
 
+#ifdef ELEVATION_COLOR
+    // Use neutral luminance since actual color comes from the ramp in the fragment shader.
+    float colorvalue = 0.5;
+#else
     // Relative luminance (how dark/bright is the surface color?)
     float colorvalue = color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722;
+#endif
 
     v_color = vec4(0.0, 0.0, 0.0, 1.0);
 
+#ifndef ELEVATION_COLOR
     // Add slight ambient lighting so no extrusions are totally black
     vec4 ambientlight = vec4(0.03, 0.03, 0.03, 1.0);
     color += ambientlight;
+#endif
 
     // Calculate cos(theta), where theta is the angle between surface normal and diffuse light ray
     vec3 normalForLighting = normal / 16384.0;
@@ -102,6 +114,14 @@ void main() {
             (u_vertical_gradient * clamp((t + gradient_base) * pow(gradient_height / 150.0, 0.5), mix(0.7, 0.98, 1.0 - u_lightintensity), 1.0)));
     }
 
+#ifdef ELEVATION_COLOR
+    // Pass elevation and lighting data to the fragment shader for ramp-based coloring.
+    // Use pre-terrain-offset values (gradient_base, gradient_height) because
+    // ["elevation"] is defined as height above ground, not above sea level.
+    v_elevation_t = t > 0.0 ? gradient_height : gradient_base;
+    v_directional = directional;
+    v_color = vec4(0.0, 0.0, 0.0, opacity);
+#else
     // Assign final color based on surface + ambient light color, diffuse light directional, and light color
     // with lower bounds adjusted to hue of light
     // so that shading is tinted with the complementary (opposite) color to the light color
@@ -109,4 +129,5 @@ void main() {
     v_color.g += clamp(color.g * directional * u_lightcolor.g, mix(0.0, 0.3, 1.0 - u_lightcolor.g), 1.0);
     v_color.b += clamp(color.b * directional * u_lightcolor.b, mix(0.0, 0.3, 1.0 - u_lightcolor.b), 1.0);
     v_color *= opacity;
+#endif
 }

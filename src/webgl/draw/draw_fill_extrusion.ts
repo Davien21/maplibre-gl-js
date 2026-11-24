@@ -4,10 +4,12 @@ import {ColorMode} from '../color_mode.ts';
 import {CullFaceMode} from '../cull_face_mode.ts';
 import {
     fillExtrusionUniformValues,
+    fillExtrusionElevationColorUniformValues,
     fillExtrusionPatternUniformValues,
 } from '../program/fill_extrusion_program.ts';
 import {updatePatternPositionsInProgram} from '../../render/update_pattern_positions_in_program.ts';
 import {translatePosition} from '../../util/util.ts';
+import {Texture} from '../texture.ts';
 
 import type {FrameRenderContext} from '../../render/frame_render_context.ts';
 import type {TileManager} from '../../tile/tile_manager.ts';
@@ -62,6 +64,7 @@ function drawExtrusionTiles(
     const crossfade = layer.getCrossfadeParameters();
     const constantPattern = patternProperty.constantOr(null);
     const projectedCamera = frameRenderContext.projectedCamera;
+    const useElevationColor = !image && layer.hasElevationColor();
 
     for (const coord of coords) {
         const tile = tileManager.getTile(coord);
@@ -70,12 +73,20 @@ function drawExtrusionTiles(
 
         const terrainData = frameRenderContext.getTerrainDataForTile(coord);
         const programConfiguration = bucket.programConfigurations.get(layer.id);
-        const program = frameRenderContext.useProgram(image ? 'fillExtrusionPattern' : 'fillExtrusion', programConfiguration);
+        const programName = image ? 'fillExtrusionPattern' : useElevationColor ? 'fillExtrusionElevationColor' : 'fillExtrusion';
+        const program = frameRenderContext.useProgram(programName, programConfiguration, false,
+            useElevationColor ? ['#define ELEVATION_COLOR;'] : []);
 
         if (image) {
             context.activeTexture.set(gl.TEXTURE0);
             tile.imageAtlasTexture.bind(gl.LINEAR, gl.CLAMP_TO_EDGE);
             programConfiguration.updatePaintBuffers(crossfade);
+        }
+
+        if (useElevationColor) {
+            context.activeTexture.set(gl.TEXTURE0);
+            layer.colorRampTexture ||= new Texture(context, layer.colorRamp, gl.RGBA);
+            layer.colorRampTexture.bind(gl.LINEAR, gl.CLAMP_TO_EDGE);
         }
 
         const projectionData = frameRenderContext.getProjectionDataForTile(coord);
@@ -89,9 +100,15 @@ function drawExtrusionTiles(
         );
 
         const shouldUseVerticalGradient = layer.paint.get('fill-extrusion-vertical-gradient');
-        const uniformValues = image ?
-            fillExtrusionPatternUniformValues(projectedCamera, frameRenderContext.data.light, shouldUseVerticalGradient, translate, coord, crossfade, tile) :
-            fillExtrusionUniformValues(projectedCamera, frameRenderContext.data.light, shouldUseVerticalGradient, translate);
+        let uniformValues;
+        if (image) {
+            uniformValues = fillExtrusionPatternUniformValues(projectedCamera, frameRenderContext.data.light, shouldUseVerticalGradient, translate, coord, crossfade, tile);
+        } else if (useElevationColor) {
+            const [elevMin, elevMax] = layer._elevationColorRange;
+            uniformValues = fillExtrusionElevationColorUniformValues(projectedCamera, frameRenderContext.data.light, shouldUseVerticalGradient, translate, elevMin, elevMax - elevMin);
+        } else {
+            uniformValues = fillExtrusionUniformValues(projectedCamera, frameRenderContext.data.light, shouldUseVerticalGradient, translate);
+        }
 
         program.draw(context, context.gl.TRIANGLES, depthMode, stencilMode, colorMode, CullFaceMode.backCCW,
             uniformValues, terrainData, projectionData, layer.id, bucket.layoutVertexBuffer, bucket.indexBuffer,

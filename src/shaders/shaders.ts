@@ -101,6 +101,7 @@ export const shaders: {
     fillOutlinePattern: PreparedShader;
     fillPattern: PreparedShader;
     fillExtrusion: PreparedShader;
+    fillExtrusionElevationColor: PreparedShader;
     fillExtrusionPattern: PreparedShader;
     hillshadePrepare: PreparedShader;
     hillshade: PreparedShader;
@@ -139,6 +140,7 @@ export const shaders: {
     fillOutlinePattern: prepare(fillOutlinePatternFrag, fillOutlinePatternVert),
     fillPattern: prepare(fillPatternFrag, fillPatternVert),
     fillExtrusion: prepare(fillExtrusionFrag, fillExtrusionVert),
+    fillExtrusionElevationColor: prepare(fillExtrusionFrag, fillExtrusionVert),
     fillExtrusionPattern: prepare(fillExtrusionPatternFrag, fillExtrusionPatternVert),
     hillshadePrepare: prepare(hillshadePrepareFrag, hillshadePrepareVert),
     hillshade: prepare(hillshadeFrag, hillshadeVert),

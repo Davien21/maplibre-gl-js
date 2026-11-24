@@ -1,17 +1,53 @@
+import {CompoundExpression, Interpolate, Step, ZoomConstantExpression} from '@maplibre/maplibre-gl-style-spec';
+import Point from '@mapbox/point-geometry';
 import {type QueryIntersectsFeatureParams, StyleLayer} from '../style_layer.ts';
+import {translateDistance, translate} from '../query_utils.ts';
 import {FillExtrusionBucket} from '../../data/bucket/fill_extrusion_bucket.ts';
 import {polygonIntersectsPolygon, polygonIntersectsMultiPolygon} from '../../util/intersection_tests.ts';
-import {translateDistance, translate} from '../query_utils.ts';
-import properties, {type FillExtrusionLayoutPropsPossiblyEvaluated, type FillExtrusionPaintPropsPossiblyEvaluated} from './fill_extrusion_style_layer_properties.g.ts';
-import Point from '@mapbox/point-geometry';
+import {renderColorRamp} from '../../util/color_ramp.ts';
 import {getCameraMath} from '../../camera/camera_math_factory.ts';
+import properties, {type FillExtrusionLayoutPropsPossiblyEvaluated, type FillExtrusionPaintPropsPossiblyEvaluated} from './fill_extrusion_style_layer_properties.g.ts';
 
-import type {Layout, Transitionable, Transitioning, PossiblyEvaluated} from '../properties.ts';
-import type {LayerSpecification} from '@maplibre/maplibre-gl-style-spec';
 import type {BucketParameters} from '../../data/bucket.ts';
+import type {Expression, LayerSpecification} from '@maplibre/maplibre-gl-style-spec';
+import type {Layout, Transitionable, Transitioning, PossiblyEvaluated} from '../properties.ts';
+import type {RGBAImage} from '../../util/image.ts';
+import type {Texture} from '../../webgl/texture.ts';
 import type {FillExtrusionLayoutProps, FillExtrusionPaintProps} from './fill_extrusion_style_layer_properties.g.ts';
 import type {ProjectedCamera} from '../../camera/projected_camera.ts';
 import type {UnwrappedTileID} from '../../tile/tile_id.ts';
+
+/**
+ * Recursively checks whether an expression references the elevation global.
+ */
+function expressionUsesElevation(expr: Expression): boolean {
+    if (expr instanceof CompoundExpression && expr.name === 'elevation') {
+        return true;
+    }
+    let found = false;
+    expr.eachChild((child: Expression) => {
+        found ||= expressionUsesElevation(child);
+    });
+    return found;
+}
+
+/**
+ * Extracts the elevation stop range from an interpolate or step expression
+ * whose input is the elevation global.
+ */
+function getElevationRange(expr: Expression): [number, number] | null {
+    if ((expr instanceof Interpolate || expr instanceof Step) &&
+        expr.input instanceof CompoundExpression && expr.input.name === 'elevation') {
+        const labels = expr.labels;
+        const start = isFinite(labels[0]) ? labels[0] : (labels.length > 1 ? labels[1] : 0);
+        return [start, labels[labels.length - 1]];
+    }
+    let result: [number, number] | null = null;
+    expr.eachChild((child: Expression) => {
+        result ||= getElevationRange(child);
+    });
+    return result;
+}
 
 export class Point3D extends Point {
     z: number;
@@ -27,8 +63,51 @@ export class FillExtrusionStyleLayer extends StyleLayer {
     _transitioningPaint: Transitioning<FillExtrusionPaintProps>;
     paint: PossiblyEvaluated<FillExtrusionPaintProps, FillExtrusionPaintPropsPossiblyEvaluated>;
 
+    colorRamp: RGBAImage;
+    colorRampTexture: Texture;
+    _elevationColorRange: [number, number] | null;
+
     constructor(layer: LayerSpecification, globalState: Record<string, any>) {
         super(layer, properties, globalState);
+        this._updateColorRamp();
+    }
+
+    _handleSpecialPaintPropertyUpdate(name: string): void {
+        if (name === 'fill-extrusion-color') {
+            this._updateColorRamp();
+        }
+    }
+
+    /**
+     * Whether the fill-extrusion-color property uses the elevation expression,
+     * requiring per-fragment coloring via a color ramp texture.
+     */
+    hasElevationColor(): boolean {
+        return this._elevationColorRange !== null;
+    }
+
+    _updateColorRamp(): void {
+        const rawExpression = this._transitionablePaint._values['fill-extrusion-color'].value.expression;
+        const styleExpr = rawExpression instanceof ZoomConstantExpression
+            ? rawExpression._styleExpression.expression
+            : null;
+
+        if (!styleExpr || !expressionUsesElevation(styleExpr)) {
+            this._elevationColorRange = null;
+            return;
+        }
+
+        this._elevationColorRange = getElevationRange(styleExpr) ?? [0, 1];
+        const [min, max] = this._elevationColorRange;
+
+        this.colorRamp = renderColorRamp({
+            expression: rawExpression,
+            evaluationKey: 'elevation',
+            resolution: 256,
+            clips: [{start: min, end: max}],
+            image: this.colorRamp
+        });
+        this.colorRampTexture = null;
     }
 
     createBucket(parameters: BucketParameters<FillExtrusionStyleLayer>): FillExtrusionBucket {

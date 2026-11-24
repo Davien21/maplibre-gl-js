@@ -26,6 +26,18 @@ export type FillExtrusionUniformsType = {
     'u_fill_translate': Uniform2f;
 };
 
+export type FillExtrusionElevationColorUniformsType = {
+    'u_lightpos': Uniform3f;
+    'u_lightpos_globe': Uniform3f;
+    'u_lightintensity': Uniform1f;
+    'u_lightcolor': Uniform3f;
+    'u_vertical_gradient': Uniform1f;
+    'u_fill_translate': Uniform2f;
+    'u_color_ramp': Uniform1i;
+    'u_elevation_min': Uniform1f;
+    'u_elevation_range': Uniform1f;
+};
+
 export type FillExtrusionPatternUniformsType = {
     'u_lightpos': Uniform3f;
     'u_lightpos_globe': Uniform3f;
@@ -50,6 +62,18 @@ const fillExtrusionUniforms = (context: Context, locations: UniformLocations): F
     'u_lightcolor': new Uniform3f(context, locations.u_lightcolor),
     'u_vertical_gradient': new Uniform1f(context, locations.u_vertical_gradient),
     'u_fill_translate': new Uniform2f(context, locations.u_fill_translate),
+});
+
+const fillExtrusionElevationColorUniforms = (context: Context, locations: UniformLocations): FillExtrusionElevationColorUniformsType => ({
+    'u_lightpos': new Uniform3f(context, locations.u_lightpos),
+    'u_lightpos_globe': new Uniform3f(context, locations.u_lightpos_globe),
+    'u_lightintensity': new Uniform1f(context, locations.u_lightintensity),
+    'u_lightcolor': new Uniform3f(context, locations.u_lightcolor),
+    'u_vertical_gradient': new Uniform1f(context, locations.u_vertical_gradient),
+    'u_fill_translate': new Uniform2f(context, locations.u_fill_translate),
+    'u_color_ramp': new Uniform1i(context, locations.u_color_ramp),
+    'u_elevation_min': new Uniform1f(context, locations.u_elevation_min),
+    'u_elevation_range': new Uniform1f(context, locations.u_elevation_range),
 });
 
 const fillExtrusionPatternUniforms = (context: Context, locations: UniformLocations): FillExtrusionPatternUniformsType => ({
@@ -95,6 +119,22 @@ const fillExtrusionUniformValues = (
     };
 };
 
+const fillExtrusionElevationColorUniformValues = (
+    projectedCamera: ProjectedCamera,
+    light: Readonly<LightPropsPossiblyEvaluated>,
+    shouldUseVerticalGradient: boolean,
+    translate: [number, number],
+    elevationMin: number,
+    elevationRange: number,
+): UniformValues<FillExtrusionElevationColorUniformsType> => {
+    return {
+        ...fillExtrusionUniformValues(projectedCamera, light, shouldUseVerticalGradient, translate),
+        'u_color_ramp': 0,
+        'u_elevation_min': elevationMin,
+        'u_elevation_range': elevationRange,
+    };
+};
+
 const fillExtrusionPatternUniformValues = (
     projectedCamera: ProjectedCamera,
     light: Readonly<LightPropsPossiblyEvaluated>,
@@ -109,7 +149,9 @@ const fillExtrusionPatternUniformValues = (
 
 export {
     fillExtrusionUniforms,
+    fillExtrusionElevationColorUniforms,
     fillExtrusionPatternUniforms,
     fillExtrusionUniformValues,
+    fillExtrusionElevationColorUniformValues,
     fillExtrusionPatternUniformValues
 };
